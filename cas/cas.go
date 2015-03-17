@@ -29,6 +29,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coreos/rocket/pkg/lock"
+
 	"github.com/coreos/rocket/Godeps/_workspace/src/github.com/appc/spec/aci"
 	"github.com/coreos/rocket/Godeps/_workspace/src/github.com/appc/spec/schema"
 	"github.com/coreos/rocket/Godeps/_workspace/src/github.com/appc/spec/schema/types"
@@ -60,24 +62,33 @@ var diskvStores = [...]string{
 
 // Store encapsulates a content-addressable-storage for storing ACIs on disk.
 type Store struct {
-	base   string
-	stores []*diskv.Diskv
-	db     *DB
+	base         string
+	stores       []*diskv.Diskv
+	db           *DB
+	imageLockDir string
 }
 
 func NewStore(base string) (*Store, error) {
+	casDir := filepath.Join(base, "cas")
+
 	ds := &Store{
 		base:   base,
 		stores: make([]*diskv.Diskv, len(diskvStores)),
 	}
 
+	ds.imageLockDir = filepath.Join(casDir, "imagelocks")
+	err := os.MkdirAll(ds.imageLockDir, defaultPathPerm)
+	if err != nil {
+		return nil, err
+	}
+
 	for i, p := range diskvStores {
 		ds.stores[i] = diskv.New(diskv.Options{
-			BasePath:  filepath.Join(base, "cas", p),
+			BasePath:  filepath.Join(casDir, p),
 			Transform: blockTransform,
 		})
 	}
-	db, err := NewDB(filepath.Join(base, "cas", "db"))
+	db, err := NewDB(filepath.Join(casDir, "db"))
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +181,16 @@ func (ds Store) ResolveKey(key string) (string, error) {
 }
 
 func (ds Store) ReadStream(key string) (io.ReadCloser, error) {
+	key, err := ds.ResolveKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving key: %v", err)
+	}
+	keyLock, err := lock.SharedKeyLock(ds.imageLockDir, key)
+	if err != nil {
+		return nil, fmt.Errorf("error locking image: %v", err)
+	}
+	defer keyLock.Close()
+
 	return ds.stores[blobType].ReadStream(key, false)
 }
 
@@ -222,6 +243,12 @@ func (ds Store) WriteACI(r io.Reader, latest bool) (string, error) {
 
 	// Import the uncompressed image into the store at the real key
 	key := ds.HashToKey(h)
+	keyLock, err := lock.ExclusiveKeyLock(ds.imageLockDir, key)
+	if err != nil {
+		return "", fmt.Errorf("error locking image: %v", err)
+	}
+	defer keyLock.Close()
+
 	if err = ds.stores[blobType].Import(fh.Name(), key, true); err != nil {
 		return "", fmt.Errorf("error importing image: %v", err)
 	}
@@ -273,6 +300,16 @@ func (ds Store) WriteRemote(remote *Remote) error {
 
 // Get the ImageManifest with the specified key.
 func (ds Store) GetImageManifest(key string) (*schema.ImageManifest, error) {
+	key, err := ds.ResolveKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving key: %v", err)
+	}
+	keyLock, err := lock.SharedKeyLock(ds.imageLockDir, key)
+	if err != nil {
+		return nil, fmt.Errorf("error locking image: %v", err)
+	}
+	defer keyLock.Close()
+
 	imj, err := ds.stores[imageManifestType].Read(key)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving image manifest: %v", err)
