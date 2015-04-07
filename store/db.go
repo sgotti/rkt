@@ -104,6 +104,10 @@ func (db *DB) DoTx(fns ...txfunc) error {
 		return err
 	}
 	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("recovered panic: %v", r)
+			return
+		}
 		if err != nil {
 			tx.Rollback()
 			return
