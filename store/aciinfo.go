@@ -17,6 +17,8 @@ type ACIInfo struct {
 	// Latest defines if the ACI was imported using the latest pattern (no
 	// version label was provided on ACI discovery)
 	Latest bool
+	// LastUsed is the time when the aci was used for the last time
+	LastUsed time.Time
 }
 
 func NewACIInfo(blobKey string, latest bool, t time.Time) *ACIInfo {
@@ -36,7 +38,7 @@ func GetACIInfosWithKeyPrefix(tx *sql.Tx, prefix string) ([]*ACIInfo, error) {
 	}
 	for rows.Next() {
 		aciinfo := &ACIInfo{}
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest, &aciinfo.LastUsed); err != nil {
 			return nil, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
@@ -59,7 +61,7 @@ func GetACIInfosWithAppName(tx *sql.Tx, appname string) ([]*ACIInfo, bool, error
 	for rows.Next() {
 		found = true
 		aciinfo := &ACIInfo{}
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest, &aciinfo.LastUsed); err != nil {
 			return nil, false, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
@@ -78,7 +80,7 @@ func WriteACIInfo(tx *sql.Tx, aciinfo *ACIInfo) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("INSERT into aciinfo values ($1, $2, $3, $4)", aciinfo.BlobKey, aciinfo.AppName, aciinfo.ImportTime, aciinfo.Latest)
+	_, err = tx.Exec("INSERT into aciinfo values ($1, $2, $3, $4, $5)", aciinfo.BlobKey, aciinfo.AppName, aciinfo.ImportTime, aciinfo.Latest, aciinfo.LastUsed)
 	if err != nil {
 		return err
 	}

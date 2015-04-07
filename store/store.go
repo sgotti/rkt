@@ -316,6 +316,7 @@ func (ds Store) WriteACI(r io.Reader, latest bool) (string, error) {
 			AppName:    im.Name.String(),
 			ImportTime: time.Now(),
 			Latest:     latest,
+			LastUsed:   time.Time{},
 		}
 		return WriteACIInfo(tx, aciinfo)
 	}); err != nil {
