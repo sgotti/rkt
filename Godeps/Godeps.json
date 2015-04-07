@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/coreos/rkt",
-	"GoVersion": "go1.4.1",
+	"GoVersion": "go1.4.2",
 	"Packages": [
 		"./..."
 	],
@@ -88,7 +88,7 @@
 		},
 		{
 			"ImportPath": "github.com/cznic/ql",
-			"Rev": "fc1b91b82089d3f132fbed8a7c9f349c3133eb96"
+			"Rev": "d9e60330bc88a4acae690e69a4075cbbe076b068"
 		},
 		{
 			"ImportPath": "github.com/cznic/sortutil",

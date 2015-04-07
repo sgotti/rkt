@@ -1865,7 +1865,7 @@ func (db *DB) run1(pc *TCtx, tnl0 *int, s stmt, arg ...interface{}) (rs Recordse
 				return nil, errBeginTransNoCtx
 			}
 
-			if pc != db.cc {
+			if *pc != *db.cc {
 				for db.rw == true {
 					db.mu.Unlock() // Transaction isolation
 					db.mu.Lock()

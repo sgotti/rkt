@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	oN = flag.Int("N", 0, "")
-	oM = flag.Int("M", 0, "")
+	oN        = flag.Int("N", 0, "")
+	oM        = flag.Int("M", 0, "")
+	oFastFail = flag.Bool("fastFail", false, "")
 )
 
 var testdata []string
@@ -259,7 +260,7 @@ func test(t *testing.T, s testDB) (panicked error) {
 		q = strings.Replace(q, "&oror;", "||", -1)
 		list, err := Compile(q)
 		if err != nil {
-			if !chk(itest, err, expErr, re) {
+			if !chk(itest, err, expErr, re) && *oFastFail {
 				return
 			}
 
@@ -322,7 +323,7 @@ func test(t *testing.T, s testDB) (panicked error) {
 			}
 
 			return true
-		}() {
+		}() && *oFastFail {
 			return
 		}
 	}
