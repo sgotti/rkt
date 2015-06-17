@@ -24,14 +24,14 @@ import (
 
 var (
 	cmdRmImage = &cobra.Command{
-		Use:   "rmimage IMAGEID...",
+		Use:   "rm IMAGEID...",
 		Short: "Remove image(s) with the given key(s) from the local store",
 		Run:   runWrapper(runRmImage),
 	}
 )
 
 func init() {
-	cmdRkt.AddCommand(cmdRmImage)
+	cmdImage.AddCommand(cmdRmImage)
 }
 
 func runRmImage(cmd *cobra.Command, args []string) (exit int) {
