@@ -40,7 +40,6 @@ const (
 )
 
 // TreeStore represents a store of rendered ACIs
-// The image's key becomes the name of the directory containing the rendered aci.
 type TreeStore struct {
 	path string
 }
@@ -49,8 +48,8 @@ type TreeStore struct {
 // Write, to avoid having a rendered ACI with old stale files, requires that
 // the destination directory doesn't exist (usually Remove should be called
 // before Write)
-func (ts *TreeStore) Write(key string, s *Store) error {
-	treepath := filepath.Join(ts.path, key)
+func (ts *TreeStore) Write(id string, key string, s *Store) error {
+	treepath := filepath.Join(ts.path, id)
 	fi, _ := os.Stat(treepath)
 	if fi != nil {
 		return fmt.Errorf("treestore: path %s already exists", treepath)
@@ -66,7 +65,7 @@ func (ts *TreeStore) Write(key string, s *Store) error {
 	if err != nil {
 		return fmt.Errorf("treestore: cannot render aci: %v", err)
 	}
-	hash, err := ts.Hash(key)
+	hash, err := ts.Hash(id)
 	if err != nil {
 		return fmt.Errorf("treestore: cannot calculate tree hash: %v", err)
 	}
@@ -96,9 +95,9 @@ func (ts *TreeStore) Write(key string, s *Store) error {
 	return nil
 }
 
-// Remove cleans the directory for the specified key
-func (ts *TreeStore) Remove(key string) error {
-	treepath := filepath.Join(ts.path, key)
+// Remove cleans the directory for the specified id
+func (ts *TreeStore) Remove(id string) error {
+	treepath := filepath.Join(ts.path, id)
 	// If tree path doesn't exist we're done
 	_, err := os.Stat(treepath)
 	if err != nil && os.IsNotExist(err) {
@@ -134,10 +133,10 @@ func (ts *TreeStore) Remove(key string) error {
 }
 
 // IsRendered checks if the tree store is fully rendered
-func (ts *TreeStore) IsRendered(key string) (bool, error) {
+func (ts *TreeStore) IsRendered(id string) (bool, error) {
 	// if the "rendered" flag file exists, assume that the store is already
 	// fully rendered.
-	treepath := filepath.Join(ts.path, key)
+	treepath := filepath.Join(ts.path, id)
 	_, err := os.Stat(filepath.Join(treepath, renderedfilename))
 	if os.IsNotExist(err) {
 		return false, nil
@@ -148,25 +147,25 @@ func (ts *TreeStore) IsRendered(key string) (bool, error) {
 	return true, nil
 }
 
-// GetPath returns the absolute path of the treestore for the specified key.
+// GetPath returns the absolute path of the treestore for the specified id.
 // It doesn't ensure that the path exists and is fully rendered. This should
 // be done calling IsRendered()
-func (ts *TreeStore) GetPath(key string) string {
-	return filepath.Join(ts.path, key)
+func (ts *TreeStore) GetPath(id string) string {
+	return filepath.Join(ts.path, id)
 }
 
-// GetRootFS returns the absolute path of the rootfs for the specified key.
+// GetRootFS returns the absolute path of the rootfs for the specified id.
 // It doesn't ensure that the rootfs exists and is fully rendered. This should
 // be done calling IsRendered()
-func (ts *TreeStore) GetRootFS(key string) string {
-	return filepath.Join(ts.GetPath(key), "rootfs")
+func (ts *TreeStore) GetRootFS(id string) string {
+	return filepath.Join(ts.GetPath(id), "rootfs")
 }
 
 // TreeStore calculates an hash of the rendered ACI. It uses the same functions
 // used to create a tar but instead of writing the full archive is just
 // computes the sha512 sum of the file infos and contents.
-func (ts *TreeStore) Hash(key string) (string, error) {
-	treepath := filepath.Join(ts.path, key)
+func (ts *TreeStore) Hash(id string) (string, error) {
+	treepath := filepath.Join(ts.path, id)
 
 	hash := sha512.New()
 	iw := NewHashWriter(hash)
@@ -182,13 +181,13 @@ func (ts *TreeStore) Hash(key string) (string, error) {
 
 // Check calculates the actual rendered ACI's hash and verifies that it matches
 // the saved value.
-func (ts *TreeStore) Check(key string) error {
-	treepath := filepath.Join(ts.path, key)
+func (ts *TreeStore) Check(id string) error {
+	treepath := filepath.Join(ts.path, id)
 	hash, err := ioutil.ReadFile(filepath.Join(treepath, hashfilename))
 	if err != nil {
 		return fmt.Errorf("treestore: cannot read hash file: %v", err)
 	}
-	curhash, err := ts.Hash(key)
+	curhash, err := ts.Hash(id)
 	if err != nil {
 		return fmt.Errorf("treestore: cannot calculate tree hash: %v", err)
 	}
