@@ -26,13 +26,13 @@ type ACIInfo struct {
 	// BlobKey is the key in the blob/imageManifest store of the related
 	// ACI file and is the db primary key.
 	BlobKey string
-	// AppName is the app name provided by the ACI.
-	AppName string
 	// ImportTime is the time this ACI was imported in the store.
 	ImportTime time.Time
 	// Latest defines if the ACI was imported using the latest pattern (no
 	// version label was provided on ACI discovery)
 	Latest bool
+	// Name is the name of the ACI.
+	Name string
 }
 
 func NewACIInfo(blobKey string, latest bool, t time.Time) *ACIInfo {
@@ -41,6 +41,11 @@ func NewACIInfo(blobKey string, latest bool, t time.Time) *ACIInfo {
 		Latest:     latest,
 		ImportTime: t,
 	}
+}
+
+func aciinfoRowScan(rows *sql.Rows, aciinfo *ACIInfo) error {
+	// This ordering MUST match that in schema.go
+	return rows.Scan(&aciinfo.BlobKey, &aciinfo.ImportTime, &aciinfo.Latest, &aciinfo.Name)
 }
 
 // GetAciInfosWithKeyPrefix returns all the ACIInfos with a blobkey starting with the given prefix.
@@ -52,7 +57,7 @@ func GetACIInfosWithKeyPrefix(tx *sql.Tx, prefix string) ([]*ACIInfo, error) {
 	}
 	for rows.Next() {
 		aciinfo := &ACIInfo{}
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := aciinfoRowScan(rows, aciinfo); err != nil {
 			return nil, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
@@ -63,19 +68,19 @@ func GetACIInfosWithKeyPrefix(tx *sql.Tx, prefix string) ([]*ACIInfo, error) {
 	return aciinfos, err
 }
 
-// GetAciInfosWithAppName returns all the ACIInfos for a given appname. found will be
+// GetAciInfosWithName returns all the ACIInfos for a given name. found will be
 // false if no aciinfo exists.
-func GetACIInfosWithAppName(tx *sql.Tx, appname string) ([]*ACIInfo, bool, error) {
+func GetACIInfosWithName(tx *sql.Tx, name string) ([]*ACIInfo, bool, error) {
 	aciinfos := []*ACIInfo{}
 	found := false
-	rows, err := tx.Query("SELECT * from aciinfo WHERE appname == $1", appname)
+	rows, err := tx.Query("SELECT * from aciinfo WHERE name == $1", name)
 	if err != nil {
 		return nil, false, err
 	}
 	for rows.Next() {
 		found = true
 		aciinfo := &ACIInfo{}
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := aciinfoRowScan(rows, aciinfo); err != nil {
 			return nil, false, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
@@ -97,7 +102,7 @@ func GetACIInfoWithBlobKey(tx *sql.Tx, blobKey string) (*ACIInfo, bool, error) {
 	}
 	for rows.Next() {
 		found = true
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := aciinfoRowScan(rows, aciinfo); err != nil {
 			return nil, false, err
 		}
 		// No more than one row for blobkey must exist.
@@ -128,7 +133,7 @@ func GetAllACIInfos(tx *sql.Tx, sortfields []string, ascending bool) ([]*ACIInfo
 	}
 	for rows.Next() {
 		aciinfo := &ACIInfo{}
-		if err := rows.Scan(&aciinfo.BlobKey, &aciinfo.AppName, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
+		if err := aciinfoRowScan(rows, aciinfo); err != nil {
 			return nil, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
@@ -147,7 +152,7 @@ func WriteACIInfo(tx *sql.Tx, aciinfo *ACIInfo) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec("INSERT into aciinfo values ($1, $2, $3, $4)", aciinfo.BlobKey, aciinfo.AppName, aciinfo.ImportTime, aciinfo.Latest)
+	_, err = tx.Exec("INSERT into aciinfo (blobkey, importtime, latest, name) VALUES ($1, $2, $3, $4)", aciinfo.BlobKey, aciinfo.ImportTime, aciinfo.Latest, aciinfo.Name)
 	if err != nil {
 		return err
 	}

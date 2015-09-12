@@ -28,6 +28,7 @@ var (
 	migrateTable = map[int]migrateFunc{
 		1: migrateToV1,
 		2: migrateToV2,
+		3: migrateToV3,
 	}
 )
 
@@ -78,6 +79,20 @@ func migrateToV2(tx *sql.Tx) error {
 	_, err = tx.Exec("UPDATE remote downloadedtime = $1", t)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func migrateToV3(tx *sql.Tx) error {
+	for _, t := range []string{
+		"ALTER TABLE aciinfo ADD name string",
+		"UPDATE aciinfo name = appname",
+		"ALTER TABLE aciinfo DROP COLUMN appname",
+	} {
+		_, err := tx.Exec(t)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
