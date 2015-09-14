@@ -85,9 +85,16 @@ func migrateToV2(tx *sql.Tx) error {
 
 func migrateToV3(tx *sql.Tx) error {
 	for _, t := range []string{
-		"ALTER TABLE aciinfo ADD name string",
-		"UPDATE aciinfo name = appname",
-		"ALTER TABLE aciinfo DROP COLUMN appname",
+		"CREATE TABLE aciinfo_tmp (blobkey string, name string, importtime time, latest bool);",
+		"CREATE UNIQUE INDEX IF NOT EXISTS blobkeyidx ON aciinfo_tmp (blobkey)",
+		"CREATE INDEX IF NOT EXISTS nameidx ON aciinfo_tmp (name)",
+		"INSERT INTO aciinfo_tmp (blobkey, name, importtime, latest) SELECT blobkey, appname, importtime, latest from aciinfo",
+		"DROP TABLE aciinfo",
+		"CREATE TABLE aciinfo (blobkey string, name string, importtime time, latest bool);",
+		"CREATE UNIQUE INDEX IF NOT EXISTS blobkeyidx ON aciinfo (blobkey)",
+		"CREATE INDEX IF NOT EXISTS nameidx ON aciinfo (name)",
+		"INSERT INTO aciinfo SELECT * from aciinfo_tmp",
+		"DROP TABLE aciinfo_tmp",
 	} {
 		_, err := tx.Exec(t)
 		if err != nil {

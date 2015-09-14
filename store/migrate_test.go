@@ -264,7 +264,7 @@ func getAllACIInfosV3(tx *sql.Tx) ([]*ACIInfoV3, error) {
 	}
 	for rows.Next() {
 		aciinfo := &ACIInfoV3{}
-		if rows.Scan(&aciinfo.BlobKey, &aciinfo.ImportTime, &aciinfo.Latest, &aciinfo.Name); err != nil {
+		if rows.Scan(&aciinfo.BlobKey, &aciinfo.Name, &aciinfo.ImportTime, &aciinfo.Latest); err != nil {
 			return nil, err
 		}
 		aciinfos = append(aciinfos, aciinfo)
