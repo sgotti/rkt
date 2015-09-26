@@ -510,6 +510,24 @@ func (ds Store) RemoveTreeStore(id string) error {
 	return nil
 }
 
+func (ds Store) GetTreeStoreIDs() ([]string, error) {
+	treeStoreIDs := []string{}
+	ls, err := ioutil.ReadDir(ds.treestore.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("cannot read treestore directory: %v", err)
+		}
+	}
+
+	for _, p := range ls {
+		if p.IsDir() {
+			id := filepath.Base(p.Name())
+			treeStoreIDs = append(treeStoreIDs, id)
+		}
+	}
+	return treeStoreIDs, nil
+}
+
 // GetRemote tries to retrieve a remote with the given ACIURL. found will be
 // false if remote doesn't exist.
 func (s Store) GetRemote(aciURL string) (*Remote, bool, error) {
