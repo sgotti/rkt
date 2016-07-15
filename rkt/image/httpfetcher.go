@@ -43,6 +43,12 @@ func (f *httpFetcher) Hash(u *url.URL, a *asc) (string, error) {
 	ensureLogger(f.Debug)
 	urlStr := u.String()
 
+	if f.Rem != nil {
+		if useCached(f.Rem.DownloadTime, f.Rem.CacheMaxAge) {
+			return f.Rem.BlobKey, nil
+		}
+	}
+
 	if f.Debug {
 		log.Printf("fetching image from %s", urlStr)
 	}
