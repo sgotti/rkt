@@ -17,11 +17,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/pkg/lock"
+	rktflag "github.com/coreos/rkt/rkt/flag"
 	"github.com/coreos/rkt/store"
+
 	"github.com/hashicorp/errwrap"
 	"github.com/spf13/cobra"
 )
@@ -40,12 +43,24 @@ The default grace period is 24h. Use --grace-period=0s to effectively disable
 the grace-period.`,
 		Run: runWrapper(runGCImage),
 	}
+
 	flagImageGracePeriod time.Duration
+	flagImageGCType      *rktflag.OptionList
 )
 
 func init() {
+	// Set defaults
+	var err error
+	imageGCTypes := []string{"imagestore", "treestore"}
+	flagImageGCType, err = rktflag.NewOptionList(imageGCTypes, strings.Join(imageGCTypes, ","))
+	if err != nil {
+		stderr.FatalE("", err)
+	}
+
 	cmdImage.AddCommand(cmdImageGC)
 	cmdImageGC.Flags().DurationVar(&flagImageGracePeriod, "grace-period", defaultImageGracePeriod, "duration to wait since an image was last used before removing it")
+	cmdImageGC.Flags().Var(flagImageGCType, "gc-type", fmt.Sprintf(`comma-separated list of image garbage collection types to execute. Accepted values: %s`,
+		flagImageGCType.PermissibleString()))
 }
 
 func runGCImage(cmd *cobra.Command, args []string) (exit int) {
@@ -55,14 +70,20 @@ func runGCImage(cmd *cobra.Command, args []string) (exit int) {
 		return 1
 	}
 
-	if err := gcTreeStore(s); err != nil {
-		stderr.PrintE("failed to remove unreferenced treestores", err)
-		return 1
-	}
+	for _, gcType := range flagImageGCType.Options {
+		switch gcType {
+		case "imagestore":
+			if err := gcStore(s, flagImageGracePeriod); err != nil {
+				stderr.Error(err)
+				return 1
+			}
 
-	if err := gcStore(s, flagImageGracePeriod); err != nil {
-		stderr.Error(err)
-		return 1
+		case "treestore":
+			if err := gcTreeStore(s); err != nil {
+				stderr.PrintE("failed to remove unreferenced treestores", err)
+				return 1
+			}
+		}
 	}
 
 	return 0

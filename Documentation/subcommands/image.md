@@ -101,6 +101,7 @@ rkt: 2 image(s) successfully removed
 | Flag | Default | Options | Description |
 | --- | --- | --- | --- |
 | `--grace-period` |  `24h0m0s` | A time | Duration to wait since an image was last used before removing it |
+| `--gc-type` | `imagestore,treestore` | A comma-separated list with one or more of `imagestore`, `treestore` | Comma separated list of image garbage collection types to execute |
 
 ## rkt image list
 
