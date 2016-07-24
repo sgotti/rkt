@@ -161,6 +161,12 @@ func runImages(cmd *cobra.Command, args []string) int {
 		return 1
 	}
 
+	ts, err := newTreeStore(s)
+	if err != nil {
+		stderr.PrintE("cannot open tree store", err)
+		return 1
+	}
+
 	remotes, err := s.GetAllRemotes()
 	if err != nil {
 		stderr.PrintE("unable to get remotes", err)
@@ -180,6 +186,20 @@ func runImages(cmd *cobra.Command, args []string) int {
 	if err != nil {
 		stderr.PrintE("unable to get aci infos", err)
 		return 1
+	}
+
+	tsSizes := map[string]int64{}
+	for _, aciInfo := range aciInfos {
+		infos, err := ts.GetInfosByImageDigest(aciInfo.BlobKey)
+		if err != nil {
+			stderr.Error(err)
+			return 1
+		}
+		var treeStoreSize int64
+		for _, i := range infos {
+			treeStoreSize += i.Size
+		}
+		tsSizes[aciInfo.BlobKey] = treeStoreSize
 	}
 
 	for _, aciInfo := range aciInfos {
@@ -228,7 +248,7 @@ func runImages(cmd *cobra.Command, args []string) int {
 					fieldValue = humanize.Time(aciInfo.LastUsed)
 				}
 			case l(size):
-				totalSize := aciInfo.Size + aciInfo.TreeStoreSize
+				totalSize := aciInfo.Size + tsSizes[aciInfo.BlobKey]
 				if flagFullOutput {
 					fieldValue = fmt.Sprintf("%d", totalSize)
 				} else {
