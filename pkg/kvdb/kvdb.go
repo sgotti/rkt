@@ -27,7 +27,7 @@ type DB struct {
 }
 
 func NewDB(dbfile string, mode os.FileMode) *DB {
-	return &DB{dbfile: dbfile}
+	return &DB{dbfile: dbfile, mode: mode}
 }
 
 type txfunc func(*bolt.Tx) error
