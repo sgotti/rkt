@@ -197,54 +197,101 @@ func NewVolumesTest() testutils.Test {
 	})
 }
 
-var volDockerTests = []struct {
+// TODO(sgotti) actool doesn't provide a command to patch annotations so, at
+// the moment, we aren't going to test images not converted by docker2aci since
+// the inspect image has the docker2aci annotations defined
+var noVolumePolicyTests = []struct {
 	dir             string
 	expectedContent string
+	expectedError   bool
 }{
 	{
 		"/dir1",
 		"dir1",
+		false,
 	},
 	{
 		"/dir2",
 		"dir2",
+		false,
 	},
 	{
 		"/dir1/link_rel_dir2",
 		"dir2",
+		false,
 	},
 	{
 		"/dir1/link_abs_dir2",
 		"dir2",
+		false,
 	},
 }
 
-func TestDockerVolumeSemantics(t *testing.T) {
+func TestNoVolumePolicy(t *testing.T) {
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
 	var dockerVolImage []string
-	for i, tt := range volDockerTests {
+	for i, tt := range noVolumePolicyTests {
 		img := patchTestACI(fmt.Sprintf("rkt-volume-image-%d.aci", i), fmt.Sprintf("--mounts=mydir,path=%s,readOnly=false", tt.dir))
 		defer os.Remove(img)
 		dockerVolImage = append(dockerVolImage, img)
 	}
 
-	for i, tt := range volDockerTests {
+	for i, tt := range noVolumePolicyTests {
 		t.Logf("Running test #%v on directory %s", i, tt.dir)
 
-		cmd := fmt.Sprintf(`/bin/sh -c "export FILE=%s/file ; %s --debug --insecure-options=image run --inherit-env %s --exec /inspect -- --read-file"`, tt.dir, ctx.Cmd(), dockerVolImage[i])
+		fileName := fmt.Sprintf("%s/file", tt.dir)
+		cmd := fmt.Sprintf(`/bin/sh -c "export FILE=%s ; %s --debug --insecure-options=image run --inherit-env %s --exec /inspect -- --read-file"`, fileName, ctx.Cmd(), dockerVolImage[i])
 
-		expected := fmt.Sprintf("<<<%s>>>", tt.expectedContent)
-		runRktAndCheckOutput(t, cmd, expected, false)
+		var expected string
+		if !tt.expectedError {
+			expected = fmt.Sprintf("<<<%s>>>", tt.expectedContent)
+		} else {
+			expected = fmt.Sprintf("Cannot read file %q", fileName)
+		}
+		runRktAndCheckOutput(t, cmd, expected, tt.expectedError)
+
 	}
 }
 
-func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
+// TODO(sgotti) actool doesn't provide a command to patch annotations so, at
+// the moment, we aren't going to test images not converted by docker2aci since
+// the inspect image has the docker2aci annotations defined
+var noVolumePolicyTestsPodManifest = []struct {
+	podManifestVolumePolicy string
+	dir                     string
+	expectedContent         string
+	expectedError           bool
+}{
+	// pod manifest without novolumepolicy defined
+	{
+		"",
+		"/dir1",
+		"dir1",
+		false,
+	},
+	// pod manifest with novolumepolicy = empty-copy
+	{
+		"empty-copy",
+		"/dir1",
+		"dir1",
+		false,
+	},
+	// pod manifest with novolumepolicy = empty
+	{
+		"empty",
+		"/dir1",
+		"dir1",
+		true,
+	},
+}
+
+func TestNoVolumePolicyPodManifest(t *testing.T) {
 	ctx := testutils.NewRktRunCtx()
 	defer ctx.Cleanup()
 
-	for i, tt := range volDockerTests {
+	for i, tt := range noVolumePolicyTestsPodManifest {
 		t.Logf("Running test #%v on directory %s", i, tt.dir)
 
 		hash, err := patchImportAndFetchHash(fmt.Sprintf("rkt-volume-image-pm-%d.aci", i), []string{fmt.Sprintf("--mounts=mydir,path=%s,readOnly=false", tt.dir)}, t, ctx)
@@ -257,6 +304,8 @@ func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
 			t.Fatalf("Cannot generate types.Hash from %v: %v", hash, err)
 		}
 
+		fileName := fmt.Sprintf("%s/file", tt.dir)
+
 		pm := &schema.PodManifest{
 			ACKind:    schema.PodManifestKind,
 			ACVersion: schema.AppContainerVersion,
@@ -268,7 +317,7 @@ func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
 						User:  "0",
 						Group: "0",
 						Environment: []types.EnvironmentVariable{
-							{"FILE", fmt.Sprintf("%s/file", tt.dir)},
+							{"FILE", fmt.Sprintf("%s", fileName)},
 						},
 						MountPoints: []types.MountPoint{
 							{"mydir", tt.dir, false},
@@ -281,6 +330,10 @@ func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
 			},
 		}
 
+		if tt.podManifestVolumePolicy != "" {
+			pm.Apps[0].Annotations.Set("coreos.com/rkt/pod/annotations/novolumepolicy", tt.podManifestVolumePolicy)
+		}
+
 		manifestFile := generatePodManifestFile(t, pm)
 		defer os.Remove(manifestFile)
 
@@ -288,6 +341,11 @@ func TestDockerVolumeSemanticsPodManifest(t *testing.T) {
 
 		expected := fmt.Sprintf("<<<%s>>>", tt.expectedContent)
 
-		runRktAndCheckOutput(t, cmd, expected, false)
+		if !tt.expectedError {
+			expected = fmt.Sprintf("<<<%s>>>", tt.expectedContent)
+		} else {
+			expected = fmt.Sprintf("Cannot read file %q", fileName)
+		}
+		runRktAndCheckOutput(t, cmd, expected, tt.expectedError)
 	}
 }
