@@ -20,8 +20,9 @@ import (
 	"time"
 
 	"github.com/coreos/rkt/common"
+	aciimage "github.com/coreos/rkt/common/image/aci"
 	"github.com/coreos/rkt/pkg/lock"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
 	"github.com/coreos/rkt/store/treestore"
 	"github.com/hashicorp/errwrap"
 	"github.com/spf13/cobra"
@@ -50,7 +51,7 @@ func init() {
 }
 
 func runGCImage(cmd *cobra.Command, args []string) (exit int) {
-	s, err := imagestore.NewStore(storeDir())
+	s, err := rwcasref.NewStore(storeDir())
 	if err != nil {
 		stderr.PrintE("cannot open store", err)
 		return 1
@@ -138,17 +139,17 @@ func getReferencedTreeStoreIDs() (map[string]struct{}, error) {
 	return treeStoreIDs, nil
 }
 
-func gcStore(s *imagestore.Store, gracePeriod time.Duration) error {
+func gcStore(s *rwcasref.Store, gracePeriod time.Duration) error {
 	var imagesToRemove []string
-	aciinfos, err := s.GetAllACIInfos([]string{"lastused"}, true)
+	aciInfos, err := aciimage.GetAllACIInfos(s)
 	if err != nil {
-		return errwrap.Wrap(errors.New("failed to get aciinfos"), err)
+		return errwrap.Wrap(errors.New("failed to get aciInfos"), err)
 	}
-	for _, ai := range aciinfos {
+	for _, ai := range aciInfos {
 		if time.Now().Sub(ai.LastUsed) <= gracePeriod {
 			break
 		}
-		imagesToRemove = append(imagesToRemove, ai.BlobKey)
+		imagesToRemove = append(imagesToRemove, ai.Digest)
 	}
 
 	if err := rmImages(s, imagesToRemove); err != nil {

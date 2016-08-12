@@ -27,8 +27,10 @@ import (
 	"github.com/coreos/rkt/pkg/log"
 	"github.com/coreos/rkt/rkt/config"
 	rktflag "github.com/coreos/rkt/rkt/flag"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
+	"github.com/coreos/rkt/store/manifestcache"
 	"github.com/coreos/rkt/store/treestore"
+
 	"github.com/spf13/cobra"
 )
 
@@ -296,11 +298,15 @@ func garbageDir() string {
 }
 
 func storeDir() string {
-	return filepath.Join(getDataDir(), "cas")
+	return filepath.Join(getDataDir(), "casref")
 }
 
 func treeStoreDir() string {
 	return filepath.Join(getDataDir(), "treestore")
+}
+
+func aciManifestCacheDir() string {
+	return filepath.Join(getDataDir(), "manifestcache", "aci")
 }
 
 // Backward compatibility with the old tree store paths
@@ -398,12 +404,20 @@ func lockDir() string {
 
 // newTreeStore is a facility to create a new treestore instance and set
 // backward compatibility with the previous treestore implementation
-func newTreeStore(s *imagestore.Store) (*treestore.Store, error) {
-	ts, err := treestore.NewStore(treeStoreDir(), s)
+func newTreeStore(s *rwcasref.Store) (*treestore.Store, error) {
+	amc, err := newACIManifestCache(s)
+	if err != nil {
+		return nil, err
+	}
+	ts, err := treestore.NewStore(treeStoreDir(), s, amc)
 	if err != nil {
 		return nil, err
 	}
 	ts.SetOldTreeStoreDir(oldTreeStoreDir())
 
 	return ts, nil
+}
+
+func newACIManifestCache(s *rwcasref.Store) (*manifestcache.ACIManifestCache, error) {
+	return manifestcache.NewACIManifestCache(aciManifestCacheDir(), s)
 }

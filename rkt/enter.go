@@ -25,7 +25,7 @@ import (
 	"github.com/appc/spec/schema/types"
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/stage0"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
 	"github.com/hashicorp/errwrap"
 	"github.com/spf13/cobra"
 )
@@ -94,7 +94,7 @@ func runEnter(cmd *cobra.Command, args []string) (exit int) {
 		return 1
 	}
 
-	s, err := imagestore.NewStore(storeDir())
+	s, err := rwcasref.NewStore(storeDir())
 	if err != nil {
 		stderr.PrintE("cannot open store", err)
 		return 1

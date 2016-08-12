@@ -1,3 +1,17 @@
+// Copyright 2016 The rkt Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package manifestcache
 
 import (
@@ -51,6 +65,11 @@ func NewACIManifestCache(dir string, s *rwcasref.Store) (*ACIManifestCache, erro
 }
 
 func (c *ACIManifestCache) GetManifestJSON(digest string) ([]byte, error) {
+	//TODO(sgotti) Add locking
+	digest, err := c.s.ResolveDigest(digest)
+	if err != nil {
+		return nil, errwrap.Wrap(errors.New("error resolving digest"), err)
+	}
 	if c.cache.Has(digest) {
 		imj, err := c.cache.Read(digest)
 		if err != nil {
@@ -93,6 +112,12 @@ func (c *ACIManifestCache) GetManifest(digest string) (*schema.ImageManifest, er
 		return nil, errwrap.Wrap(errors.New("error unmarshalling image manifest"), err)
 	}
 	return im, nil
+}
+
+// GC removes manifests for ACI not available in the casref store (removed images)
+func (c *ACIManifestCache) GC() error {
+	//TODO(sgotti) implement
+	return nil
 }
 
 // manifestFromImage extracts the manifestn from the given ACI image.

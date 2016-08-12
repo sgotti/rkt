@@ -42,14 +42,15 @@ import (
 	"github.com/appc/spec/schema/types"
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/common/apps"
+	"github.com/coreos/rkt/common/image/aci"
 	"github.com/coreos/rkt/common/overlay"
-	"github.com/coreos/rkt/pkg/aci"
 	"github.com/coreos/rkt/pkg/fileutil"
 	"github.com/coreos/rkt/pkg/label"
 	"github.com/coreos/rkt/pkg/sys"
 	"github.com/coreos/rkt/pkg/tpm"
 	"github.com/coreos/rkt/pkg/user"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
+	"github.com/coreos/rkt/store/manifestcache"
 	"github.com/coreos/rkt/store/treestore"
 	"github.com/coreos/rkt/version"
 	"github.com/hashicorp/errwrap"
@@ -92,15 +93,17 @@ type RunConfig struct {
 
 // configuration shared by both Run and Prepare
 type CommonConfig struct {
-	Store        *imagestore.Store // store containing all of the configured application images
-	TreeStore    *treestore.Store  // store containing all of the configured application images
-	Stage1Image  types.Hash        // stage1 image containing usable /init and /enter entrypoints
-	UUID         *types.UUID       // UUID of the pod
-	RootHash     string            // Hash of the root filesystem
-	ManifestData string            // The pod manifest data
-	Debug        bool
-	MountLabel   string // selinux label to use for fs
-	ProcessLabel string // selinux label to use for process
+	Store         *rwcasref.Store  // store containing all of the configured application images
+	TreeStore     *treestore.Store // store containing all of the configured application images
+	ManifestCache *manifestcache.ACIManifestCache
+	ACIRegistry   *aci.ACIRegistry
+	Stage1Image   types.Hash  // stage1 image containing usable /init and /enter entrypoints
+	UUID          *types.UUID // UUID of the pod
+	RootHash      string      // Hash of the root filesystem
+	ManifestData  string      // The pod manifest data
+	Debug         bool
+	MountLabel    string // selinux label to use for fs
+	ProcessLabel  string // selinux label to use for process
 }
 
 func init() {
@@ -183,7 +186,7 @@ func generatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 	if err := cfg.Apps.Walk(func(app *apps.App) error {
 		img := app.ImageID
 
-		am, err := cfg.Store.GetImageManifest(img.String())
+		am, err := cfg.ManifestCache.GetManifest(img.String())
 		if err != nil {
 			return errwrap.Wrap(errors.New("error getting the manifest"), err)
 		}
@@ -354,7 +357,7 @@ func validatePodManifest(cfg PrepareConfig, dir string) ([]byte, error) {
 		if img.ID.Empty() {
 			return nil, fmt.Errorf("no image ID for app %q", ra.Name)
 		}
-		am, err := cfg.Store.GetImageManifest(img.ID.String())
+		am, err := cfg.ManifestCache.GetManifest(img.ID.String())
 		if err != nil {
 			return nil, errwrap.Wrap(errors.New("error getting the image manifest from store"), err)
 		}
@@ -611,7 +614,7 @@ func Run(cfg RunConfig, dir string, dataDir string) {
 func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cdir string, useOverlay bool) error {
 	debug("Loading image %s", img.String())
 
-	am, err := cfg.Store.GetImageManifest(img.String())
+	am, err := cfg.ManifestCache.GetManifest(img.String())
 	if err != nil {
 		return errwrap.Wrap(errors.New("error getting the manifest"), err)
 	}
@@ -672,7 +675,7 @@ func prepareAppImage(cfg PrepareConfig, appName types.ACName, img types.Hash, cd
 			return errwrap.Wrap(fmt.Errorf("error shifting app %q's stage2 dir", appName), err)
 		}
 
-		if err := aci.RenderACIWithImageID(img, ad, cfg.Store, cfg.PrivateUsers); err != nil {
+		if err := aci.RenderACIWithImageID(img, ad, cfg.ACIRegistry, cfg.PrivateUsers); err != nil {
 			return errwrap.Wrap(errors.New("error rendering ACI"), err)
 		}
 	}
@@ -787,7 +790,7 @@ func setupStage1Image(cfg RunConfig, cdir string, useOverlay bool) error {
 
 // writeManifest takes an img ID and writes the corresponding manifest in dest
 func writeManifest(cfg CommonConfig, img types.Hash, dest string) error {
-	mb, err := cfg.Store.GetImageManifestJSON(img.String())
+	mb, err := cfg.ManifestCache.GetManifestJSON(img.String())
 	if err != nil {
 		return err
 	}

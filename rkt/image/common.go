@@ -29,7 +29,8 @@ import (
 	rktlog "github.com/coreos/rkt/pkg/log"
 	"github.com/coreos/rkt/rkt/config"
 	rktflag "github.com/coreos/rkt/rkt/flag"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
+	"github.com/coreos/rkt/store/manifestcache"
 	"github.com/coreos/rkt/store/treestore"
 	"github.com/hashicorp/errwrap"
 
@@ -49,9 +50,11 @@ const (
 // action is a common type for Finder and Fetcher
 type action struct {
 	// S is an aci store where images will be looked for or stored.
-	S *imagestore.Store
+	S *rwcasref.Store
 	// Ts is an aci tree store.
 	Ts *treestore.Store
+	// Mc is an aci manifest cache.
+	Mc *manifestcache.ACIManifestCache
 	// Ks is a keystore used for verification of the image
 	Ks *keystore.Keystore
 	// Headers is a map of headers which might be used for
@@ -310,31 +313,4 @@ func AppcSimpleString(a *dist.Appc) string {
 		}
 	}
 	return img
-}
-
-func eTag(rem *imagestore.Remote) string {
-	if rem != nil {
-		return rem.ETag
-	}
-	return ""
-}
-
-func maybeUseCached(rem *imagestore.Remote, cd *cacheData) string {
-	if rem == nil || cd == nil {
-		return ""
-	}
-	if cd.UseCached {
-		return rem.BlobKey
-	}
-	return ""
-}
-
-func remoteForURL(s *imagestore.Store, u *url.URL) (*imagestore.Remote, error) {
-	urlStr := u.String()
-	if rem, ok, err := s.GetRemote(urlStr); err != nil {
-		return nil, errwrap.Wrap(fmt.Errorf("failed to fetch remote for URL %q", urlStr), err)
-	} else if ok {
-		return rem, nil
-	}
-	return nil, nil
 }

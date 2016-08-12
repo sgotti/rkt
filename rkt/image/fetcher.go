@@ -26,11 +26,12 @@ import (
 	"github.com/coreos/rkt/common/apps"
 	dist "github.com/coreos/rkt/common/distribution"
 	"github.com/coreos/rkt/stage0"
-	"github.com/coreos/rkt/store/imagestore"
-	"github.com/hashicorp/errwrap"
+	"github.com/coreos/rkt/store/casref/rwcasref"
 
 	"github.com/appc/spec/discovery"
 	"github.com/appc/spec/schema/types"
+
+	"github.com/hashicorp/errwrap"
 )
 
 // Fetcher will try to fetch images into the store.
@@ -141,11 +142,11 @@ func (f *Fetcher) addImageDeps(hash string, imgsl *list.List, seen map[string]st
 }
 
 func (f *Fetcher) getImageDeps(hash string) (types.Dependencies, error) {
-	key, err := f.S.ResolveKey(hash)
+	digest, err := f.S.ResolveDigest(hash)
 	if err != nil {
 		return nil, err
 	}
-	im, err := f.S.GetImageManifest(key)
+	im, err := f.Mc.GetManifest(digest)
 	if err != nil {
 		return nil, err
 	}
@@ -167,32 +168,37 @@ func (f *Fetcher) fetchSingleImage(d dist.Distribution, a *asc) (string, error) 
 }
 
 func (f *Fetcher) fetchACIArchive(d *dist.ACIArchive, a *asc) (string, error) {
-	u := d.ArchiveURL()
+	digest, err := f.S.GetRef(d.ComparableURIString())
+	if err != nil && err != rwcasref.ErrRefNotFound {
+		return "", err
+	}
+	if !f.NoStore && err != rwcasref.ErrRefNotFound {
+		log.Printf("using image from local store for url %s", d.ArchiveURL().String())
+		return digest, nil
+	}
 
+	u := d.ArchiveURL()
+	var h string
 	switch u.Scheme {
 	case "http", "https":
-		return f.fetchSingleImageByHTTPURL(u, a)
+		h, err = f.fetchSingleImageByHTTPURL(u, a)
 	case "file":
-		return f.fetchSingleImageByPath(u.Path, a)
+		h, err = f.fetchSingleImageByPath(u.Path, a)
 	case "":
 		return "", fmt.Errorf("expected image URL %q to contain a scheme", u.String())
 	default:
 		return "", fmt.Errorf("an unsupported URL scheme %q - the only URL schemes supported by rkt for an archive are http, https and file", u.Scheme)
 	}
-}
-
-func (f *Fetcher) fetchSingleImageByHTTPURL(u *url.URL, a *asc) (string, error) {
-	rem, err := remoteForURL(f.S, u)
 	if err != nil {
 		return "", err
 	}
-	if h := f.maybeCheckRemoteFromStore(rem); h != "" {
-		return h, nil
+	if h == "" {
+		return "", fmt.Errorf("unable to fetch image from URL %q: either image was not found in the store or store was disabled and fetching from remote yielded nothing or it was disabled", u.String())
 	}
-	if h, err := f.maybeFetchHTTPURLFromRemote(rem, u, a); h != "" || err != nil {
-		return h, err
+	if err := f.S.SetRef(d.ComparableURIString(), h); err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("unable to fetch image from URL %q: either image was not found in the store or store was disabled and fetching from remote yielded nothing or it was disabled", u.String())
+	return h, nil
 }
 
 func (f *Fetcher) fetchSingleImageByDockerURL(d *dist.Docker) (string, error) {
@@ -202,35 +208,33 @@ func (f *Fetcher) fetchSingleImageByDockerURL(d *dist.Docker) (string, error) {
 		return "", err
 	}
 
-	rem, err := remoteForURL(f.S, u)
-	if err != nil {
+	digest, err := f.S.GetRef(d.ComparableURIString())
+	if err != nil && err != rwcasref.ErrRefNotFound {
 		return "", err
 	}
-	if h := f.maybeCheckRemoteFromStore(rem); h != "" {
-		return h, nil
+	if !f.NoStore && err != rwcasref.ErrRefNotFound {
+		log.Printf("using image from local store for url docker://%s", d.DockerString())
+		return digest, nil
 	}
 	if h, err := f.maybeFetchDockerURLFromRemote(u); h != "" || err != nil {
+		if err != nil {
+			return "", err
+		}
+		if err := f.S.SetRef(d.ComparableURIString(), h); err != nil {
+			return "", err
+		}
 		return h, err
 	}
 	return "", fmt.Errorf("unable to fetch docker image from URL %q: either image was not found in the store or store was disabled and fetching from remote yielded nothing or it was disabled", u.String())
 }
 
-func (f *Fetcher) maybeCheckRemoteFromStore(rem *imagestore.Remote) string {
-	if f.NoStore || rem == nil {
-		return ""
-	}
-	log.Printf("using image from local store for url %s", rem.ACIURL)
-	return rem.BlobKey
-}
-
-func (f *Fetcher) maybeFetchHTTPURLFromRemote(rem *imagestore.Remote, u *url.URL, a *asc) (string, error) {
+func (f *Fetcher) fetchSingleImageByHTTPURL(u *url.URL, a *asc) (string, error) {
 	if !f.StoreOnly {
 		log.Printf("remote fetching from URL %q", u.String())
 		hf := &httpFetcher{
 			InsecureFlags: f.InsecureFlags,
 			S:             f.S,
 			Ks:            f.Ks,
-			Rem:           rem,
 			Debug:         f.Debug,
 			Headers:       f.Headers,
 		}
@@ -299,6 +303,12 @@ func (f *Fetcher) fetchSingleImageByName(d *dist.Appc, a *asc) (string, error) {
 		return h, err
 	}
 	if h, err := f.maybeFetchImageFromRemote(app, a); h != "" || err != nil {
+		if h != "" {
+			// TODO(sgotti) For OCI check that all the required blobs are available
+			if err := f.S.SetRef(dist.NewAppcFromApp(app.App).ComparableURIString(), h); err != nil {
+				return "", err
+			}
+		}
 		return h, err
 	}
 	return "", fmt.Errorf("unable to fetch image from image name %q: either image was not found in the store or store was disabled and fetching from remote yielded nothing or it was disabled", app.Str)
@@ -306,36 +316,33 @@ func (f *Fetcher) fetchSingleImageByName(d *dist.Appc, a *asc) (string, error) {
 
 func (f *Fetcher) maybeCheckStoreForApp(app *appBundle) (string, error) {
 	if !f.NoStore {
-		key, err := f.getStoreKeyFromApp(app)
+		digest, err := f.getDigestFromApp(app)
 		if err == nil {
 			log.Printf("using image from local store for image name %s", app.Str)
-			return key, nil
+			return digest, err
 		}
-		switch err.(type) {
-		case imagestore.ACINotFoundError:
-			// ignore the "not found" error
-		default:
+		if err != rwcasref.ErrRefNotFound {
 			return "", err
 		}
 	}
 	return "", nil
 }
 
-func (f *Fetcher) getStoreKeyFromApp(app *appBundle) (string, error) {
-	labels, err := types.LabelsFromMap(app.App.Labels)
+func (f *Fetcher) getDigestFromApp(app *appBundle) (string, error) {
+	d := dist.NewAppcFromApp(app.App)
+	digest, err := f.S.GetRef(d.ComparableURIString())
 	if err != nil {
-		return "", errwrap.Wrap(fmt.Errorf("invalid labels in the name %q", app.Str), err)
+		return "", err
 	}
-	key, err := f.S.GetACI(app.App.Name, labels)
+	// check blob exists (TODO sgotti) this is an additional check but the store should be consistent (no refs for unexistant blobs)
+	ok, err := f.S.HasBlob(digest)
 	if err != nil {
-		switch err.(type) {
-		case imagestore.ACINotFoundError:
-			return "", err
-		default:
-			return "", errwrap.Wrap(fmt.Errorf("cannot find image %q", app.Str), err)
-		}
+		return "", err
 	}
-	return key, nil
+	if !ok {
+		return "", nil
+	}
+	return digest, err
 }
 
 func (f *Fetcher) maybeFetchImageFromRemote(app *appBundle, a *asc) (string, error) {

@@ -15,14 +15,31 @@
 package aci
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/appc/spec/aci"
+	"github.com/coreos/rkt/common/image"
 	"github.com/coreos/rkt/common/mediatype"
 	"github.com/coreos/rkt/pkg/digest"
 	"github.com/coreos/rkt/store/casref/rwcasref"
 	"github.com/hashicorp/errwrap"
+)
+
+// ACIInfo is used to store information about an ACI.
+type ACIInfo struct {
+}
+
+// FullACIInfo merges BlobInfo with ACIInfo.
+type FullACIInfo struct {
+	rwcasref.BlobInfo
+	image.ImageInfo
+}
+
+const (
+	DataTypeACIInfo = "aciinfo"
 )
 
 // WriteACI takes an ACI encapsulated in an io.Reader, decompresses it if
@@ -35,11 +52,71 @@ func WriteACI(s *rwcasref.Store, r io.ReadSeeker) (string, error) {
 	}
 	defer dr.Close()
 
-	return s.WriteBlob(dr, string(mediatype.ACI), nil, digest.SHA512)
+	imageInfo := &image.ImageInfo{
+		LastUsed: time.Now(),
+	}
+	iij, err := json.Marshal(imageInfo)
+	if err != nil {
+		return "", errwrap.Wrap(errors.New("error marshalling image info"), err)
+	}
+	blobData := map[string][]byte{
+		image.DataTypeImageInfo: iij,
+	}
+	return s.WriteBlob(dr, string(mediatype.ACI), blobData, digest.SHA512)
 }
 
 func ReadACI(s *rwcasref.Store, digest string) (io.ReadCloser, error) {
 	// TODO(sgotti) Check that the ACIInfo blob data exists. If not it
 	// means something broke between writing the blob and setting the data.
 	return s.ReadBlob(digest)
+}
+
+func GetFullACIInfo(s *rwcasref.Store, digest string) (*FullACIInfo, error) {
+	bi, err := s.GetBlobInfo(digest)
+	if err != nil {
+		return nil, errwrap.Wrap(errors.New("error getting aci blob infos"), err)
+	}
+	if bi == nil {
+		return nil, errors.New("blob doesn't exists")
+	}
+	return getFullACIInfo(s, bi)
+}
+
+func getFullACIInfo(s *rwcasref.Store, bi *rwcasref.BlobInfo) (*FullACIInfo, error) {
+	aij, err := s.GetBlobData(bi.Digest, image.DataTypeImageInfo)
+	if err != nil {
+		return nil, errwrap.Wrap(errors.New("error getting aci blob infos"), err)
+	}
+	var ai image.ImageInfo
+	if err := json.Unmarshal(aij, &ai); err != nil {
+		return nil, errwrap.Wrap(errors.New("error unmarshalling aci info"), err)
+	}
+	fullACIInfo := &FullACIInfo{
+		rwcasref.BlobInfo{
+			Digest:     bi.Digest,
+			MediaType:  bi.MediaType,
+			ImportTime: bi.ImportTime,
+			Size:       bi.Size,
+		},
+		image.ImageInfo{
+			LastUsed: ai.LastUsed,
+		},
+	}
+	return fullACIInfo, nil
+}
+
+func GetAllACIInfos(s *rwcasref.Store) ([]*FullACIInfo, error) {
+	fullACIInfos := []*FullACIInfo{}
+	blobInfos, err := s.GetBlobsInfosByMediaType(string(mediatype.ACI))
+	if err != nil {
+		return nil, errwrap.Wrap(errors.New("error getting aci blob infos"), err)
+	}
+	for _, bi := range blobInfos {
+		fullACIInfo, err := getFullACIInfo(s, bi)
+		if err != nil {
+			return nil, errwrap.Wrap(errors.New("error getting aci info"), err)
+		}
+		fullACIInfos = append(fullACIInfos, fullACIInfo)
+	}
+	return fullACIInfos, nil
 }

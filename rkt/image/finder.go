@@ -47,7 +47,7 @@ func (f *Finder) FindImage(img string, asc string) (*types.Hash, error) {
 
 	// Check if it's an hash
 	if _, err := types.NewHash(img); err == nil {
-		h, err := f.getHashFromStore(img)
+		h, err := f.getDigestFromStore(img)
 		if err != nil {
 			return nil, err
 		}
@@ -68,16 +68,12 @@ func (f *Finder) FindImage(img string, asc string) (*types.Hash, error) {
 	return h, nil
 }
 
-func (f *Finder) getHashFromStore(img string) (*types.Hash, error) {
-	h, err := types.NewHash(img)
-	if err != nil {
-		return nil, errwrap.Wrap(fmt.Errorf("%q is not a valid hash", img), err)
-	}
-	fullKey, err := f.S.ResolveKey(img)
+func (f *Finder) getDigestFromStore(img string) (*types.Hash, error) {
+	digest, err := f.S.ResolveDigest(img)
 	if err != nil {
 		return nil, errwrap.Wrap(fmt.Errorf("could not resolve image %q", img), err)
 	}
-	h, err = types.NewHash(fullKey)
+	h, err := types.NewHash(digest)
 	if err != nil {
 		// should never happen
 		log.PanicE("got an invalid hash from the store, looks like it is corrupted", err)

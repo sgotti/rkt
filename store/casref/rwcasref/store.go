@@ -39,7 +39,8 @@ const (
 )
 
 var (
-	ErrDigestNotFound = errors.New("no digest found")
+	ErrDigestNotFound = errors.New("digest not found")
+	ErrRefNotFound    = errors.New("ref not found")
 	ErrStaleData      = errors.New("some stale data has been left on disk")
 )
 
@@ -110,10 +111,15 @@ func (s *Store) initBlobDB() error {
 	dbFile := s.blobDBFile()
 	db := kvdb.NewDB(dbFile, defaultFilePerm)
 
-	// Create the "info" bucket
+	// Create the "blobinfo" and "blobdata" buckets
 	if err := db.DoRW(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(blobinfobucket))
-		return err
+		if _, err := tx.CreateBucketIfNotExists([]byte(blobinfobucket)); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists([]byte(blobdatabucket)); err != nil {
+			return err
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -285,7 +291,6 @@ func (s *Store) WriteBlob(r io.Reader, mediaType string, blobData map[string][]b
 			Digest:     digest,
 			MediaType:  mediaType,
 			ImportTime: time.Now(),
-			LastUsed:   time.Now(),
 			Size:       sz,
 		}
 		if err := writeBlobInfo(tx, blobInfo); err != nil {
@@ -309,7 +314,7 @@ func (s *Store) WriteBlob(r io.Reader, mediaType string, blobData map[string][]b
 	return digest, nil
 }
 
-func (s *Store) WriteBlobData(digest string, dataType string, data []byte) error {
+func (s *Store) SetBlobData(digest string, dataType string, data []byte) error {
 	if dataType == "" {
 		return errors.New("empty datatype")
 	}
@@ -324,19 +329,19 @@ func (s *Store) WriteBlobData(digest string, dataType string, data []byte) error
 	defer blobKeyLock.Close()
 
 	if err = s.blobDB.DoRW(func(tx *bolt.Tx) error {
-		blobInfo, err := getBlobInfo(tx, digest)
-		if err != nil {
-			return errwrap.Wrap(errors.New("error getting blobinfo"), err)
+		blobData := &BlobData{
+			Digest:   digest,
+			DataType: dataType,
+			Data:     data,
 		}
-		blobInfo.Data[dataType] = data
-		return writeBlobInfo(tx, blobInfo)
+		return writeBlobData(tx, blobData)
 	}); err != nil {
 		return errwrap.Wrap(errors.New("error writing blob data"), err)
 	}
 	return nil
 }
 
-func (s *Store) ReadBlobData(digest string, dataType string) ([]byte, error) {
+func (s *Store) GetBlobData(digest string, dataType string) ([]byte, error) {
 	if dataType == "" {
 		return nil, errors.New("empty datatype")
 	}
@@ -350,23 +355,23 @@ func (s *Store) ReadBlobData(digest string, dataType string) ([]byte, error) {
 	}
 	defer blobKeyLock.Close()
 
-	var blobInfo *BlobInfo
+	var blobData *BlobData
 	if err = s.blobDB.DoRO(func(tx *bolt.Tx) error {
 		var err error
-		blobInfo, err = getBlobInfo(tx, digest)
+		blobData, err = getBlobData(tx, digest, dataType)
 		if err != nil {
-			return errwrap.Wrap(errors.New("error getting blobinfo"), err)
+			return errwrap.Wrap(errors.New("error getting blobdata"), err)
 		}
 		return nil
 	}); err != nil {
 		return nil, errwrap.Wrap(errors.New("error getting blobinfo"), err)
 	}
-	return blobInfo.Data[dataType], nil
+	return blobData.Data, nil
 }
 
 // RemoveBlob removes the blob and all its data with the given digest.
-// It'll fail if a blob as some references on it. Set force to true to remove
-// the blob and all its references.
+// If force is false it'll fail if a blob as some references on it. If force is
+// true it'll remove the blob and all its references.
 // If some error occurs removing some non transactional data a blob is
 // considered as removed but ErrStaleData is returned.
 func (s *Store) RemoveBlob(digest string, force bool) error {
@@ -381,21 +386,11 @@ func (s *Store) RemoveBlob(digest string, force bool) error {
 	defer blobKeyLock.Close()
 
 	refs := []*Ref{}
-	err = s.refDB.DoRW(func(tx *bolt.Tx) error {
+	err = s.refDB.DoRO(func(tx *bolt.Tx) error {
 		var err error
 		refs, err = getRefsByDigest(tx, digest)
 		if err != nil {
 			return errwrap.Wrap(errors.New("error getting refs"), err)
-		}
-		if refs != nil && !force {
-			return errors.New("blob is referenced")
-		}
-		if refs != nil && force {
-			for _, ref := range refs {
-				if err := removeRef(tx, ref.ID); err != nil {
-					return errwrap.Wrap(errors.New("error removing ref"), err)
-				}
-			}
 		}
 		return nil
 	})
@@ -403,7 +398,21 @@ func (s *Store) RemoveBlob(digest string, force bool) error {
 		return errwrap.Wrap(fmt.Errorf("cannot get refs for digest: %s from db", digest), err)
 	}
 	if len(refs) != 0 {
-		return fmt.Errorf("cannot remove referenced blob %q", digest)
+		if !force {
+			return errors.New("blob is referenced")
+		} else {
+			err = s.refDB.DoRW(func(tx *bolt.Tx) error {
+				for _, ref := range refs {
+					if err := removeRef(tx, ref.ID); err != nil {
+						return errwrap.Wrap(errors.New("error removing ref"), err)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return errwrap.Wrap(fmt.Errorf("cannot get refs for digest: %s from db", digest), err)
+			}
+		}
 	}
 
 	// Then remove blobinfo from the db
@@ -432,7 +441,9 @@ func (s *Store) RemoveBlob(digest string, force bool) error {
 	return nil
 }
 
-func (s *Store) GetRef(id string) (*Ref, error) {
+// GetRef return the digest associated with the ref. If the ref doesn't exist
+// ErrRefNotFound is returned.
+func (s *Store) GetRef(id string) (string, error) {
 	var ref *Ref
 	if err := s.refDB.DoRO(func(tx *bolt.Tx) error {
 		var err error
@@ -442,9 +453,12 @@ func (s *Store) GetRef(id string) (*Ref, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("error getting ref: %v", err)
+		return "", fmt.Errorf("error getting ref: %v", err)
 	}
-	return ref, nil
+	if ref == nil {
+		return "", ErrRefNotFound
+	}
+	return ref.Digest, nil
 }
 
 // SetRef sets the reference to an image digest
@@ -505,6 +519,19 @@ func (s *Store) GetAllRefs() ([]*Ref, error) {
 		return nil, fmt.Errorf("error getting refs: %v", err)
 	}
 	return refs, nil
+}
+
+func (s *Store) GetBlobInfo(digest string) (*BlobInfo, error) {
+	var blobInfo *BlobInfo
+	err := s.blobDB.DoRO(func(tx *bolt.Tx) error {
+		var err error
+		blobInfo, err = getBlobInfo(tx, digest)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return blobInfo, nil
 }
 
 func (s *Store) GetBlobsInfosByMediaType(mediaType string) ([]*BlobInfo, error) {

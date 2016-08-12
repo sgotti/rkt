@@ -42,11 +42,8 @@ type BlobInfo struct {
 	MediaType string
 	// Render image size
 	Size int64
-
+	// Time the blob was imported in the store
 	ImportTime time.Time
-	LastUsed   time.Time
-
-	Data map[string][]byte
 }
 
 func checkKeyPart(k string) {

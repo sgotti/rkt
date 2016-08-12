@@ -26,13 +26,14 @@ import (
 
 	"github.com/appc/spec/pkg/acirenderer"
 	"github.com/appc/spec/schema/types"
-	"github.com/coreos/rkt/pkg/aci"
+	"github.com/coreos/rkt/common/image/aci"
 	"github.com/coreos/rkt/pkg/fileutil"
 	"github.com/coreos/rkt/pkg/kvdb"
 	"github.com/coreos/rkt/pkg/lock"
 	"github.com/coreos/rkt/pkg/sys"
 	"github.com/coreos/rkt/pkg/user"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
+	"github.com/coreos/rkt/store/manifestcache"
 
 	"github.com/boltdb/bolt"
 	"github.com/hashicorp/errwrap"
@@ -52,12 +53,13 @@ type Store struct {
 	// Path to previous implementaion render directory
 	// TODO(sgotti) remove when backward compatibility isn't needed anymore
 	oldRenderDir string
-	store        *imagestore.Store
+	store        *rwcasref.Store
+	aciregistry  *aci.ACIRegistry
 	db           *kvdb.DB
 	lockDir      string
 }
 
-func NewStore(dir string, store *imagestore.Store) (*Store, error) {
+func NewStore(dir string, store *rwcasref.Store, aciManifestCache *manifestcache.ACIManifestCache) (*Store, error) {
 	// We need to allow the store's setgid bits (if any) to propagate, so
 	// disable umask
 	um := syscall.Umask(0)
@@ -78,6 +80,8 @@ func NewStore(dir string, store *imagestore.Store) (*Store, error) {
 		return nil, errwrap.Wrap(errors.New("cannot initialize treestore db"), err)
 	}
 	ts.db = kvdb.NewDB(ts.dbFile(), defaultFilePerm)
+
+	ts.aciregistry = aci.NewACIRegistry(store, aciManifestCache)
 
 	return ts, nil
 }
@@ -152,7 +156,7 @@ func (ts *Store) GetInfosByImageDigest(digest string) ([]*Info, error) {
 // Returns the id of the rendered treestore
 func (ts *Store) Render(digest string, rebuild bool) (id string, err error) {
 	// Get the full digest
-	digest, err = ts.store.ResolveKey(digest)
+	digest, err = ts.store.ResolveDigest(digest)
 	if err != nil {
 		return "", err
 	}
@@ -315,7 +319,7 @@ func (ts *Store) calculateID(digest string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	images, err := acirenderer.CreateDepListFromImageID(*hash, ts.store)
+	images, err := acirenderer.CreateDepListFromImageID(*hash, ts.aciregistry)
 	if err != nil {
 		return "", err
 	}
@@ -348,7 +352,7 @@ func (ts *Store) render(id string, digest string) error {
 	if err := os.MkdirAll(treepath, 0755); err != nil {
 		return errwrap.Wrap(fmt.Errorf("cannot create treestore directory %s", treepath), err)
 	}
-	err = aci.RenderACIWithImageID(*imageID, treepath, ts.store, user.NewBlankUidRange())
+	err = aci.RenderACIWithImageID(*imageID, treepath, ts.aciregistry, user.NewBlankUidRange())
 	if err != nil {
 		return errwrap.Wrap(errors.New("cannot render aci"), err)
 	}

@@ -24,7 +24,7 @@ import (
 	"github.com/appc/spec/schema/types"
 	"github.com/coreos/rkt/rkt/config"
 	"github.com/coreos/rkt/rkt/image"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
 	"github.com/coreos/rkt/store/treestore"
 	"github.com/hashicorp/errwrap"
 	"github.com/spf13/pflag"
@@ -214,7 +214,7 @@ func addStage1ImageFlags(flags *pflag.FlagSet) {
 //
 // If location is an image hash then we make sure that it exists in
 // the store.
-func getStage1Hash(s *imagestore.Store, ts *treestore.Store, c *config.Config) (*types.Hash, error) {
+func getStage1Hash(s *rwcasref.Store, ts *treestore.Store, c *config.Config) (*types.Hash, error) {
 	imgDir := getStage1ImagesDirectory(c)
 	if overriddenStage1Location.kind != stage1ImageLocationUnset {
 		// we passed a --stage-{url,path,name,hash,from-dir} flag
@@ -232,7 +232,7 @@ func getStage1ImagesDirectory(c *config.Config) string {
 	return buildDefaultStage1ImagesDir
 }
 
-func getStage1HashFromFlag(s *imagestore.Store, ts *treestore.Store, loc stage1ImageLocation, dir string) (*types.Hash, error) {
+func getStage1HashFromFlag(s *rwcasref.Store, ts *treestore.Store, loc stage1ImageLocation, dir string) (*types.Hash, error) {
 	withKeystore := true
 	location := loc.location
 	if loc.kind == stage1ImageLocationFromDir {
@@ -295,7 +295,7 @@ func isTrustedLocation(location string) (bool, error) {
 	return false, nil
 }
 
-func getConfiguredStage1Hash(s *imagestore.Store, ts *treestore.Store, imgRef, imgLoc, imgFileName string) (*types.Hash, error) {
+func getConfiguredStage1Hash(s *rwcasref.Store, ts *treestore.Store, imgRef, imgLoc, imgFileName string) (*types.Hash, error) {
 	trusted, err := isTrustedLocation(imgLoc)
 	if err != nil {
 		return nil, err
@@ -319,7 +319,7 @@ func getConfiguredStage1Hash(s *imagestore.Store, ts *treestore.Store, imgRef, i
 	return getStage1HashFromPath(fn, imgLoc, imgFileName)
 }
 
-func getStage1Finder(s *imagestore.Store, ts *treestore.Store, withKeystore bool) *image.Finder {
+func getStage1Finder(s *rwcasref.Store, ts *treestore.Store, withKeystore bool) *image.Finder {
 	fn := &image.Finder{
 		S:                  s,
 		Ts:                 ts,

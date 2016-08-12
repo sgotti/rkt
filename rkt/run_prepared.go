@@ -19,7 +19,7 @@ package main
 import (
 	"github.com/coreos/rkt/common"
 	"github.com/coreos/rkt/stage0"
-	"github.com/coreos/rkt/store/imagestore"
+	"github.com/coreos/rkt/store/casref/rwcasref"
 	"github.com/spf13/cobra"
 )
 
@@ -62,7 +62,7 @@ func runRunPrepared(cmd *cobra.Command, args []string) (exit int) {
 	}
 	defer p.Close()
 
-	s, err := imagestore.NewStore(storeDir())
+	s, err := rwcasref.NewStore(storeDir())
 	if err != nil {
 		stderr.PrintE("cannot open store", err)
 		return 1
