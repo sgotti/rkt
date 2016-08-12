@@ -84,10 +84,14 @@ make_directory "${datadir}/pods/run" 2750 "rkt"
 make_directory "${datadir}/pods/exited-garbage" 2750 "rkt"
 make_directory "${datadir}/pods/garbage" 2750 "rkt"
 
-make_rkt_directory "${datadir}/cas/imagelocks" 2770
-make_rkt_directory "${datadir}/cas/imageManifest" 2770
-make_rkt_directory "${datadir}/cas/blob" 2770
-make_rkt_directory "${datadir}/cas/tmp" 2770
+make_rkt_directory "${datadir}/casref" 2770
+make_rkt_directory "${datadir}/casref/blobdb" 2770
+create_rkt_file "${datadir}/casref/blobdb/db" 0660
+make_rkt_directory "${datadir}/casref/refdb" 2770
+create_rkt_file "${datadir}/casref/refdb/db" 0660
+make_rkt_directory "${datadir}/casref/blob" 2770
+make_rkt_directory "${datadir}/casref/bloblocks" 2770
+make_rkt_directory "${datadir}/casref/tmp" 2770
 make_rkt_directory "${datadir}/treestore" 2770
 make_rkt_directory "${datadir}/treestore/db" 2770
 create_rkt_file "${datadir}/treestore/db/db" 0660
